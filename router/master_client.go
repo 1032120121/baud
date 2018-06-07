@@ -9,28 +9,58 @@ import (
 	"google.golang.org/grpc"
 	"github.com/tiglabs/baudengine/util/log"
 	"github.com/tiglabs/baudengine/util/json"
+	"sync"
+)
+
+var (
+	mcOnce   sync.Once
+	mcSingle *MasterClient
 )
 
 type MasterClient struct {
+	config     *Config
 	client     *rpc.Client
 	masterAddr string
 	context    context.Context
 	cancelFunc context.CancelFunc
 }
 
-func NewMasterClient(masterAddr string) *MasterClient {
-	mc := &MasterClient{masterAddr: masterAddr}
+func GetMasterClientInstance(cfg *Config) *MasterClient {
+	if mcSingle != nil {
+		return mcSingle
+	}
+
+	mcOnce.Do(func() {
+		if cfg == nil {
+			log.Error("Config should not be empty when create master client!")
+			return
+		}
+		mcSingle = newMasterClient(cfg)
+	})
+	return mcSingle
+}
+
+func newMasterClient(cfg *Config) *MasterClient {
+	mc := &MasterClient{masterAddr: cfg.ModuleCfg.MasterAddr}
 	connMgrOpt := rpc.DefaultManagerOption
 	mc.context, mc.cancelFunc = context.WithCancel(context.Background())
 	connMgr := rpc.NewConnectionMgr(mc.context, &connMgrOpt)
 	clientOpt := rpc.DefaultClientOption
-	clientOpt.ClusterID = routerCfg.ModuleCfg.ClusterId
+	clientOpt.ClusterID = cfg.ModuleCfg.ClusterId
 	clientOpt.ConnectMgr = connMgr
 	clientOpt.CreateFunc = func(clientConn *grpc.ClientConn) interface{} {
 		return masterpb.NewMasterRpcClient(clientConn)
 	}
 	mc.client = rpc.NewClient(1, &clientOpt)
 	return mc
+}
+
+func (mc *MasterClient) Close() {
+	if mc.client != nil {
+		mc.client.Close()
+		mc.client = nil
+	}
+	mcSingle = nil
 }
 
 func (mc *MasterClient) GetRoute(dbId metapb.DBID, spaceId metapb.SpaceID, slotId metapb.SlotID) []masterpb.Route {
@@ -46,22 +76,22 @@ func (mc *MasterClient) GetRoute(dbId metapb.DBID, spaceId metapb.SpaceID, slotI
 	return resp.Routes
 }
 
-func (mc *MasterClient) GetDB(dbName string) metapb.DB {
+func (mc *MasterClient) GetDB(dbName string) *metapb.DB {
 	request := &masterpb.GetDBRequest{DBName: dbName}
 	ctx, cancel := mc.getContext()
 	defer cancel()
 	resp, err := mc.getClient().GetDB(ctx, request)
 	mc.checkResponseOk(&resp.ResponseHeader, err)
-	return resp.Db
+	return &resp.Db
 }
 
-func (mc *MasterClient) GetSpace(id metapb.DBID, spaceName string) metapb.Space {
+func (mc *MasterClient) GetSpace(id metapb.DBID, spaceName string) *metapb.Space {
 	request := &masterpb.GetSpaceRequest{ID: id, SpaceName: spaceName}
 	ctx, cancel := mc.getContext()
 	defer cancel()
 	resp, err := mc.getClient().GetSpace(ctx, request)
 	mc.checkResponseOk(&resp.ResponseHeader, err)
-	return resp.Space
+	return &resp.Space
 }
 
 func (mc *MasterClient) getContext() (context.Context, context.CancelFunc) {

@@ -32,8 +32,8 @@ type ModuleConfig struct {
 	Role               string `toml:"role,omitempty" json:"role"`
 	ClusterId          string `toml:"clusterId,omitempty" json:"clusterId"`
 	Ip                 string
-	HttpPort           uint16
-	Pprof              uint16
+	HttpPort           uint32
+	Pprof              uint32
 	MasterAddr         string
 	MasterConnPoolSize uint16
 	PsConnPoolSize     uint16

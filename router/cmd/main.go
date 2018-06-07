@@ -29,11 +29,12 @@ func interceptSignal(s *router.Router) {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
+	mainWg.Add(1)
 	go func() {
+		defer mainWg.Done()
+
 		<-sigs
 		s.Shutdown()
-		mainWg.Done()
-		os.Exit(0)
 	}()
 }
 
@@ -44,6 +45,7 @@ func main() {
 	cfg := router.LoadConfig(*configFile)
 
 	log.InitFileLog(cfg.LogCfg.LogPath, cfg.ModuleCfg.Role, cfg.LogCfg.Level)
+	defer log.Flush()
 	log.Debug("log has been initialized")
 
 	//for multi-cpu scheduling

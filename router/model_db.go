@@ -1,28 +1,39 @@
 package router
 
 import (
-	"context"
 	"github.com/tiglabs/baudengine/proto/metapb"
-	"sync"
+	"github.com/tiglabs/baudengine/util/ttlcache"
+	"time"
+)
+
+const (
+	SPACE_EXPIRE_DURATION = 60 * time.Second
 )
 
 type DB struct {
-	meta         metapb.DB
-	masterClient *MasterClient
-	spaceMap     sync.Map
-	context      context.Context
+	*metapb.DB
+	spaceCache   *ttlcache.TTLCache  // key: space name, value: *Space
 }
 
-func NewDB(masterClient *MasterClient, meta metapb.DB) *DB {
-	ctx, _ := context.WithCancel(context.Background())
-	return &DB{meta: meta, masterClient: masterClient, context: ctx}
+func NewDB(meta *metapb.DB) *DB {
+	return &DB{
+		DB:         meta,
+		spaceCache: ttlcache.NewTTLCache(SPACE_EXPIRE_DURATION),
+	}
 }
 
 func (db *DB) GetSpace(spaceName string) *Space {
-	space, ok := db.spaceMap.Load(spaceName)
-	if !ok {
-		spaceMeta := db.masterClient.GetSpace(db.meta.ID, spaceName)
-		space, ok = db.spaceMap.LoadOrStore(spaceMeta.Name, NewSpace(db, spaceMeta))
+	if space, ok := db.spaceCache.Get(spaceName); ok {
+		return space.(*Space)
 	}
-	return space.(*Space)
+
+	spaceMeta := GetMasterClientInstance(nil).GetSpace(db.ID, spaceName)
+	if spaceMeta == nil {
+		return nil
+	}
+
+	newSpace := NewSpace(spaceMeta)
+	db.spaceCache.Put(spaceMeta.Name, newSpace)
+
+	return newSpace
 }
